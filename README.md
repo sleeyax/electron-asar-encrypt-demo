@@ -1,12 +1,12 @@
-# Encrypt source code for Electron application
+# Encrypting source code for Electron applications
 
 ## Why does this repository exist?
 
-As we all know, [Electron](https://electronjs.org) officially does not provide a way to protect the source code. Packaging an Electron application, to put it bluntly, is [to copy the source to a fixed place](http://electronjs.org/docs/tutorial/application-distribution), such as `resources/app`. When running an Electron application, Electron treats this directory as a Node.js project to run the JS code in it. Although Electron recognizes the code package in ASAR format, that is, it can package all the source code into a `app.asar` file and put `resources` it in the directory. Electron regards it `app.asar` as a folder and runs the code inside, but the files in the ASAR package are not encrypted. The files are spliced ​​into one file and the file header information is added. It is easy to extract all the source code from the ASAR package using the official `asar` library , so the effect of encryption is not achieved, but it is only for beginners who want to access the source code. A little bit of a threshold, a little knowledgeable and completely stress-free.
+As we all know, [Electron](https://electronjs.org) does not officially provide a way to protect the source code. To package an Electron application, you simply [copy the source code to a fixed location](http://electronjs.org/docs/tutorial/application-distribution), such as the `resources/app` directory on Windows/Linux. When running an Electron application, Electron treats this directory as a Node.js project to run the JS code in. However, the files in the ASAR package are not encrypted, they are just stitched together into one file with header information, and it is easy to extract all the source code from the ASAR package using the official `asar` library, so the effect of encryption is not achieved.
 
-So I was thinking about how to encrypt the ASAR package to prevent the commercial source code from being easily tampered with or inject some malicious code by some intentional people before distribution. Here is an idea to complete encryption without recompiling Electron.
+So I was thinking about how to encrypt the ASAR package to prevent the commercial source code from being easily tampered or injected with some malicious code by some people who want to distribute it again. Here is a way to do it without recompiling Electron.
 
-## start running
+## Start running
 
 ``` bash
 git clone https://github.com/toyobayashi/electron-asar-encrypt-demo.git
@@ -16,12 +16,12 @@ npm start   # Compile and start the application
 npm test    # Compile and run the test
 ```
 
-## encryption
+## Encryption
 
-Take AES-256-CBC as an example, first generate the key and save it in a local file, which is convenient for JS package script import and C++ include inline.
+As an example, a key is encrypted with AES-256-CBC and stored in a local file for easy import into JS package scripts and inline with C++ include.
 
 ``` js
-// This script will not be packaged into the client, for local development 
+// This script is not packaged into the client and is used for local development
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
@@ -29,13 +29,13 @@ const crypto = require('crypto')
 fs.writeFileSync(path.join(__dirname, 'src/key.txt'), Array.prototype.map.call(crypto.randomBytes(32), (v => ('0x' + ('0' + v.toString(16)).slice(-2)))))
 ```
 
-This will `src` generate a key.txt file with the following contents:
+This generates a `key.txt` file in `src`, which looks like this:
 
 ```
 0x87,0xdb,0x34,0xc6,0x73,0xab,0xae,0xad,0x4b,0xbe,0x38,0x4b,0xf5,0xd4,0xb5,0x43,0xfe,0x65,0x1c,0xf5,0x35,0xbb,0x4a,0x78,0x0a,0x78,0x61,0x65,0x99,0x2a,0xf1,0xbb
 ```
 
-To encrypt when packaging, `asar` use `asar.createPackageWithOptions()` this API of the library:
+Encryption is done when packaging, using the `asar.createPackageWithOptions()` API of the `asar` library:
 
 ``` ts
 /// <reference types="node" />
@@ -55,10 +55,10 @@ declare namespace asar {
 export = asar;
 ```
 
-The `transform` option , which is a function that returns a `ReadWriteStreamreadable` and writable stream to process the file, and returns to `undefined` not the file. In this step, all JS files are encrypted and put into ASAR package.
+Pass the transform option in the third argument, which is a function that returns a `ReadWriteStream` to process the file, or undefined if it does not process the file. This step encrypts all JS files and inserts them into the ASAR package.
 
 ``` js
-// This script will not be packaged into the client, for local development
+// This script is not packaged into the client and is used for local development
 
 const crypto = require('crypto')
 const path = require('path')
@@ -72,13 +72,13 @@ asar.createPackageWithOptions(
   path.join(__dirname, './app'),
   path.join(__dirname, './test/resources/app.asar'),
   {
-    unpack: '*.node', // C++ modules do not pack 
+    unpack: '*.node', // do not pack C++ modules 
     transform (filename) {
       if (path.extname(filename) === '.js') {
-        // generate random 16-byte initialization vector IV 
+        // generate a random 16-byte initialization vector IV
         const iv = crypto.randomBytes(16)
 
-        // Have you spelled the IV in the encrypted data 
+        // whether we have already put the IV at the start of the encrypted data (see below)
         let append = false
 
         const cipher = crypto.createCipheriv(
@@ -89,7 +89,7 @@ asar.createPackageWithOptions(
         cipher.setAutoPadding(true)
         cipher.setEncoding('base64')
 
-        // Rewrite Readable.prototype.push to spell IV at the front of encrypted data
+        // rewrite `Readable.prototype.push` to put the IV at the start of the encrypted data
         const _p = cipher.push
         cipher.push = function (chunk, enc) {
           if (!append && chunk != null) {
@@ -106,11 +106,10 @@ asar.createPackageWithOptions(
 )
 ```
 
-## main process decryption
+## Main process decryption
+Decryption is done client-side because the V8 engine can't run the encrypted JS, so it must be decrypted before being thrown to V8 to run. The client-side code can be accessed by anyone, so the key cannot be written explicitly or placed in a configuration file, so it has to be put into C++. Write a native module in C++ to implement decryption, and this module can not export decryption methods, otherwise it is meaningless. Also the key cannot be written hard coded in C++ source code as a string, because a string can be easily found in a compiled binary file.
 
-Decryption is done when the client is running. Because the V8 engine cannot run the encrypted JS, it must be decrypted first and then thrown to V8 to run. There is a lot of emphasis here. The client code can be ravaged by anyone, so the key cannot be written clearly, nor can it be placed in the configuration file, so it can only be sunk into C++. Write a native module in C++ to achieve decryption, and this module cannot export the decryption method, otherwise it is meaningless. In addition, the key cannot be hard-coded as a string in the C++ source code, because the string can be found directly in the compiled binary file.
-
-What? Isn't it useless without exporting? It's very simple. Hack the API of Node.js to ensure that it is OK if it is not available to the outside world, and then directly use the native module as the entry module, and then require the real entry JS in the native module. Here is the equivalent JS logic:
+What? Can't we use it without exporting it? It's easy to Hack the Node.js API to make sure it's not available externally, then use the native module as the entry module and require the real entry JS in the native module.
 ``` js
 // Write the following logic in C++, so that the key can be compiled into the dynamic library 
 // Only by decompiling the dynamic library can it be analyzed
@@ -127,7 +126,7 @@ const { app, dialog } = require('electron')
 
 const moduleParent = module.parent;
 if (module !== process.mainModule || (moduleParent !== Module && moduleParent !== undefined && moduleParent !== null)) {
-  // If the native module is not an entry, an error will be reported exit 
+  // If the native module is not an entry, an error will be reported and exit 
   dialog.showErrorBox('Error', 'This program has been changed by others.')
   app.quit()
 }
@@ -188,9 +187,9 @@ try {
   app.quit()
 }
 ```
-To use C++ to write the above code, there is a question, how to get JS `require` functions ?
+To write the above code in C++, there is a problem: How do I get the JS `require` function in C++?
 
-Looking at the Node source code, you can see that calling  `require` is equivalent to calling `Module.prototype.require`, so as long as you can get the `module` object , you can also get the  `require` function. Unfortunately, NAPI does not expose the `module` object . Some people put forward a PR, but the official seems to consider some reasons (in line with the ES Module standard) and does not want to expose `module` it, only exposes the `exports` object , unlike the JS in the Node CommonJS module The code is wrapped in a layer of functions:
+If you look at the Node source code, you can see that calling require is equivalent to calling `Module.prototype.require`, so if you can get the module object, you can also get the `require` function. Unfortunately, NAPI does not expose the module object in the module initialization callback, someone mentioned PR but it seems that for some reason (aligning with the ES Module standard) the Node.js developers do not want to expose the module, only the exports object, unlike the Node CommonJS module where the JS code is wrapped in a layer of functions.
 
 ``` js
 function (exports, require, module, __filename, __dirname) {
@@ -198,9 +197,9 @@ function (exports, require, module, __filename, __dirname) {
 }
 ```
 
-If you read the Node.js documentation carefully, you can see that there is `global.process.mainModule` such say, the entry module can be obtained from the global, as long as you traverse the `children` array of modules and look down, if the `module.exports` comparison is not equal  `exports`, you can find the current The `module` object .
+If you look through the Node.js documentation, you can see in the process section that there is such a thing as `global.process.mainModule`, which means that the entry module can be obtained from the global, and you can find the module object of the current native module by traversing the children array of the module and comparing `module.exports`, which is not equal to `exports`. you can find the module object of the current native module.
 
-First encapsulate the method of running the script.
+First, let's encapsulate the method of running the script.
 ``` cpp
 #include <string>
 #include "napi.h"
@@ -229,7 +228,7 @@ Napi::Value Napi::Env::RunScript(const std::string& utf8script);
 Napi::Value Napi::Env::RunScript(Napi::String script);
 ```
 
-Then you can happily JS in C++.
+Then you can happily execute JS code in C++.
 
 ``` cpp
 Napi::Value GetModuleObject(Napi::Env& env, const Napi::Object& main_module, const Napi::Object& exports) {
@@ -374,12 +373,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 NODE_API_MODULE(NODE_GYP_MODULE_NAME, Init)
 ```
 
-Seeing this, you may ask why you still use C++ to write JS after working for a long time, isn't it `RunScript()` obvious ? As mentioned earlier, directly runScript needs to write JS into a string, which exists as it is in the compiled binary file, and the key will be leaked. Writing these logics in C++ can increase the difficulty of reverse.
+You may ask why you need to use C++ to write JS after all this time, isn't it obvious that you can `RunScript()`. As mentioned earlier, `RunScript()` directly requires JS to be written as a string, which exists in the compiled binary as is, and the key will be leaked, so using C++ to write the logic can increase the difficulty to reverse engineer.
 
-To sum it up is this:
-
-1. `main.node` (compiled) inside require `main.js` (encrypted)
-2. `main.js` (encrypted) require other encrypted JS, create windows, etc.
+To summarize, it looks like this:
+1. `main.node` (compiled) inside requires `main.js` (encrypted)
+2. `main.js` (encrypted) requires other encrypted JS, creates windows, etc.
 
 Note that the entry must be main.node. If it is not, it is very likely that the attacker will hack the Node API in the JS before main.node is loaded, resulting in key leakage. For example, an entry file like this:
 
@@ -407,29 +405,28 @@ require('./main.node')
 // or Module._load('./main.node', module, true)
 ```
 
-## Rendering process decryption
+## Render process decryption
+Similar to the logic of the main process, you can use predefined macros in C++ to distinguish between the main process and the rendering process. The native module loaded by the rendering process must be context-aware, and the module written in NAPI is already context-aware, so there is no problem, but not if written in the V8 API.
 
-Similar to the logic of the main process, the main process and the rendering process can be distinguished in C++ by using predefined macros. Compile another one for the rendering process `renderer.node`. The native module loaded by the rendering process must be `上下文感知模块`. The module written with NAPI is already context-aware, so there is no problem. If it is written with the V8 API, it will not work.
+There is a restriction that you can't load JS in HTML by directly referencing the `<script>` tag, because `<script>` in HTML doesn't go `Module.prototype._compile`, so you can only call `browserWindow.webContents.executeJavaScript()` in the main process to load the native module first for each window, and then require any other JS files that may need to be decrypted.
 
-There is a limitation here, you cannot directly reference `<script>` tags load JS, because the in HTML `<script>` does not go `Module.prototype._compile`, so you can only call in the main process `browserWindow.webContents.executeJavaScript()` to first load the native module for each window, and then require other JS that may need to be decrypted document.
+## Limitations
 
-## limitations
+* `nodeIntegration` option must be turned on . You can't use preload scripts either, because then the native module won't find its own module instance and won't be able to use `require`.
+* Only JS can be encrypted, not other types of files, such as JSON, image resources, etc.
+* All JS load methods that do not take `Module.prototype._compile` will not load encrypted JS, e.g. script loading methods that rely on HTML `<script>` tags fail, and Webpack's dynamic `import()` fails.
+* If there are a lot of JS files, the performance impact caused by decryption will be greater.
+* You can't use a pure JS implementation, you have to compile the key and decryption methods in C++.
+* Cannot be made into a paid application.
+* It's not absolutely secure, decompiling the native module still risks the key being leaked and the encryption method being learned, it just raises the cracking threshold a little compared to just ASAR packaging, and the source code is not so easily accessible. If someone really wants to reverse your code, this method may not be enough defense.
 
-* `nodeIntegration` option must be turned on . You can't use preload scripts either, because then the native module won't find its own moduleinstance and won't be able to use it `require`
-* Only JS can be encrypted, other types of files cannot be encrypted, such as JSON, image resources, etc.
-* All JS loading methods `Module.prototype._compile` that cannot load encrypted JS. For example <script>, script loading methods that rely on HTML tags are invalid, and Webpack dynamic import is `import()` invalid
-* If there are a lot of JS files, the performance impact caused by decryption will be greater. The following will talk about how to reduce the JS that needs to be encrypted.
-* It cannot be implemented in pure JS, and the key key and decryption method must be compiled in C++
-* Can't make a paid application
-* It cannot be considered absolutely safe. Decompilation of native modules still has the risk of key leakage and encryption methods being known, but compared with pure ASAR packaging, the threshold for cracking is slightly raised, and the source code is not so easy to access. If someone really wants to ravage your code, this approach may not be enough defense
-
-The most effective way is to change the Electron source code and recompile Electron. However, the technical threshold of dynamic source code is high, recompiling Electron requires science, and the compilation is super slow.
+The most effective way is to change the Electron source code and recompile Electron, but the technical threshold for moving the source code is high, recompiling Electron requires science and the compilation is super slow.
 
 ## Reduce JS that needs to be encrypted
 
-`node_modules` There is a lot of JS in it, and it does not need to be encrypted, so one can be extracted separately `node_modules.asar`. The JS in this is not encrypted. But this will bring more opportunities for reverse engineering, others can inject JS code they want to run in these NPM packages, which is risky.
+There is a lot of JS inside node_modules and it doesn't need to be encrypted, so you can pull out a separate `node_modules.asar`, which has unencrypted JS. But this would give more opportunities to reverse engineers, and someone could inject the JS code they want to run in these NPM packages, which is risky.
 
-How to make `require` find `node_modules.asar` the internal library? The answer is also Hack out Node's API.
+How do you get `require` to find the libraries inside `node_modules.asar`? Again, the answer is to hack away at Node's API.
 
 ``` js
 const path = require('path')
@@ -467,15 +464,15 @@ Module._resolveLookupPaths = originalResolveLookupPaths.length === 2 ? function 
 }
 ```
 
-In this `node_modules` way , it is OK to put it `node_modules.asar` into `resources` a folder and at the same level.`app.asar`
+It's OK to make `node_modules` into `node_modules.asar` and put it in the resources folder at the same level as `app.asar`.
 
-Remember to unpack `*.node` native modules.
+Be careful and remember to unpack `*.node` native modules.
 
-## Summarize
+## Summary
 
-Encryption is performed during packaging, decryption is performed at runtime, and the decryption logic is placed in C++, and it must be loaded first.
+Do encryption at package time, decryption at runtime, decryption logic in C++, and must be the first to load.
 
-Last key, not in preloaded code `console.log`, don't forget to turn off `devTools` and `nodeIntegration`:
+The last key, don't `console.log` in the preloaded code, and don't forget to turn off devTools and turn on `nodeIntegration` in the production environment.
 
 ``` js
 new BrowserWindow({
