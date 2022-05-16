@@ -1,3 +1,7 @@
+This text was translated with help from https://www.deepl.com/translator and some manual adjustements. It may require some work here and there, contributions are welcome!
+
+---
+
 # Encrypting source code for Electron applications
 
 ## Why does this repository exist?
