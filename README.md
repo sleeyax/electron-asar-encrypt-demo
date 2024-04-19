@@ -1,8 +1,15 @@
-This text was translated with help from https://www.deepl.com/translator and some manual adjustements. It may require some work here and there, contributions are welcome!
+This text was translated with help from https://www.deepl.com/translator and some manual adjustments. It may require some work here and there, improvements are welcome!
 
 ---
 
 # Encrypting source code for Electron applications
+
+## Translations
+
+Great thanks to those who translated this README to other languages.
+
+* English - [sleeyax/electron-asar-encrypt-demo](https://github.com/sleeyax/electron-asar-encrypt-demo)
+* Portuguese - [maxwellcc/electron-asar-encrypt-demo](https://github.com/maxwellcc/electron-asar-encrypt-demo)
 
 ## Why does this repository exist?
 
